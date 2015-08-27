@@ -13,7 +13,7 @@ import (
 var elastigoConn *elastigo.Conn
 
 func init() {
-	router.AdapterFactories.Register(NewLogesAdapter, "loges")
+	router.AdapterFactories.Register(NewLogesAdapter, "logspoutloges")
 }
 
 // LogesAdapter is an adapter that streams TCP JSON to Elasticsearch
@@ -31,6 +31,8 @@ func NewLogesAdapter(route *router.Route) (router.LogAdapter, error) {
 	elastigoConn = elastigo.NewConn()
 	// The old standard for host was including :9200
 	esHost := strings.Replace(addr, ":9200", "", -1)
+	log.Infof("esHost variable: %s\n", esHost)
+
 	elastigoConn.SetHosts([]string{esHost})
 	indexer := elastigoConn.NewBulkIndexerErrors(10, 120)
 	indexer.Sender = func(buf *bytes.Buffer) error {
@@ -51,6 +53,9 @@ func (a *LogesAdapter) Stream(logstream chan *router.Message) {
 	lid := 0
 	for m := range logstream {
 		lid++
+		// Un-escape the newline characters so logs look nice
+		m.Data = EncodeNewlines(m.Data)
+
 		msg := LogesMessage{
 			Message:  m.Data,
 			Name:     m.Container.Name,
@@ -66,8 +71,8 @@ func (a *LogesAdapter) Stream(logstream chan *router.Message) {
 		}
 
 		idx := "logstash-" + m.Time.Format("2006.01.02")
-
-		if err := a.indexer.Index(idx, "golog", msg.ID, "30d", nil, js, false); err != nil {
+		//Index(index string, _type string, id,         ttl string, date *time.Time, data interface{}, refresh bool)
+		if err := a.indexer.Index(idx, "golog", msg.ID, "30d", &m.Time, js, false); err != nil {
 			log.Errorf("Index(ing) error: %v\n", err)
 		}
 	}
