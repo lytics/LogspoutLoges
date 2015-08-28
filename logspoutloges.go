@@ -35,7 +35,7 @@ func NewLogesAdapter(route *router.Route) (router.LogAdapter, error) {
 	log.Infof("esHost variable: %s\n", esHost)
 
 	elastigoConn.SetHosts([]string{esHost})
-	indexer := elastigoConn.NewBulkIndexerErrors(10, 120)
+	indexer := elastigoConn.NewBulkIndexerErrors(50, 120)
 	indexer.Sender = func(buf *bytes.Buffer) error {
 		log.Infof("es writing: %d bytes", buf.Len())
 		return indexer.Send(buf)
@@ -82,7 +82,7 @@ func (a *LogesAdapter) Stream(logstream chan *router.Message) {
 	}
 }
 
-// LogESMessage Encapsulates the log data for Elasticsearch
+// LogesMessage Encapsulates the log data for Elasticsearch
 type LogesMessage struct {
 	Source      string                 `json:"@source"`
 	Type        string                 `json:"@type"`
@@ -95,5 +95,5 @@ type LogesMessage struct {
 	ID          string                 `json:"docker.id"`
 	Image       string                 `json:"docker.image"`
 	Hostname    string                 `json:"docker.hostname"`
-	LID         int                    `json:logspout.loges.lid"`
+	LID         int                    `json:"logspoutloges.id"`
 }
