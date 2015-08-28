@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"strings"
+	"time"
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/gliderlabs/logspout/router"
@@ -57,12 +58,15 @@ func (a *LogesAdapter) Stream(logstream chan *router.Message) {
 		m.Data = EncodeNewlines(m.Data)
 
 		msg := LogesMessage{
-			Message:  m.Data,
-			Name:     m.Container.Name,
-			ID:       m.Container.ID,
-			Image:    m.Container.Config.Image,
-			Hostname: m.Container.Config.Hostname,
-			LID:      lid,
+			Source:    m.Container.Config.Hostname,
+			Type:      "logs",
+			Timestamp: time.Now(),
+			Message:   m.Data,
+			Name:      m.Container.Name,
+			ID:        m.Container.ID,
+			Image:     m.Container.Config.Image,
+			Hostname:  m.Container.Config.Hostname,
+			LID:       lid,
 		}
 		js, err := json.Marshal(msg)
 		if err != nil {
@@ -80,10 +84,16 @@ func (a *LogesAdapter) Stream(logstream chan *router.Message) {
 
 // LogESMessage Encapsulates the log data for Elasticsearch
 type LogesMessage struct {
-	Message  string `json:"message"`
-	Name     string `json:"docker.name"`
-	ID       string `json:"docker.id"`
-	Image    string `json:"docker.image"`
-	Hostname string `json:"docker.hostname"`
-	LID      int    `json:logspout.loges.lid"`
+	Source      string                 `json:"@source"`
+	Type        string                 `json:"@type"`
+	Timestamp   time.Time              `json:"@timestamp"`
+	Message     string                 `json:"@message"`
+	Tags        []string               `json:"@tags,omitempty"`
+	IndexFields map[string]interface{} `json:"@idx,omitempty"`
+	Fields      map[string]interface{} `json:"@fields"`
+	Name        string                 `json:"docker.name"`
+	ID          string                 `json:"docker.id"`
+	Image       string                 `json:"docker.image"`
+	Hostname    string                 `json:"docker.hostname"`
+	LID         int                    `json:logspout.loges.lid"`
 }
