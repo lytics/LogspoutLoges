@@ -76,7 +76,7 @@ func (a *LogesAdapter) Stream(logstream chan *router.Message) {
 
 		idx := "logstash-" + m.Time.Format("2006.01.02")
 		//Index(index string, _type string, id,         ttl string, date *time.Time, data interface{}, refresh bool)
-		if err := a.indexer.Index(idx, "logs", "", "30d", &m.Time, js, false); err != nil {
+		if err := a.indexer.Index(idx, "logs", "", "", "30d", &m.Time, js); err != nil {
 			log.Errorf("Index(ing) error: %v\n", err)
 		}
 	}
@@ -91,9 +91,9 @@ type LogesMessage struct {
 	Tags        []string               `json:"@tags,omitempty"`
 	IndexFields map[string]interface{} `json:"@idx,omitempty"`
 	Fields      map[string]interface{} `json:"@fields"`
-	Name        string                 `json:"docker.name"`
-	ID          string                 `json:"docker.id"`
-	Image       string                 `json:"docker.image"`
-	Hostname    string                 `json:"docker.hostname"`
-	LID         int                    `json:"logspoutloges.id"`
+	Name        string                 `json:"docker-name"`
+	ID          string                 `json:"docker-id"`
+	Image       string                 `json:"docker-image"`
+	Hostname    string                 `json:"docker-hostname"`
+	LID         int                    `json:"logspoutloges-id"`
 }
