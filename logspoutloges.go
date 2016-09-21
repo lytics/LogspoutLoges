@@ -70,7 +70,7 @@ func (a *LogesAdapter) Stream(logstream chan *router.Message) {
 		}
 		js, err := json.Marshal(msg)
 		if err != nil {
-			log.Println("loges:", err)
+			log.Errorf("loges marshal error: %v", err)
 			continue
 		}
 
