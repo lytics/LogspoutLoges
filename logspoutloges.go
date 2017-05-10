@@ -15,6 +15,7 @@ var elastigoConn *elastigo.Conn
 
 func init() {
 	router.AdapterFactories.Register(NewLogesAdapter, "logspoutloges")
+	elastigoConn = elastigo.NewConn()
 }
 
 // LogesAdapter is an adapter that streams TCP JSON to Elasticsearch
