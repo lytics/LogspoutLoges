@@ -25,16 +25,12 @@ type LogesAdapter struct {
 }
 
 // NewLogesAdapter creates a LogesAdapter with TCP Elastigo BulkIndexer as the default transport.
+// eg URI: `logspoutloges://10.240.0.1+10.240.0.2+10.240.0.3`
 func NewLogesAdapter(route *router.Route) (router.LogAdapter, error) {
+	hosts := parseEsAddr(route.Address)
+	log.Debugf("ES Hosts: %s", hosts)
+	elastigoConn.SetHosts(hosts)
 
-	addr := route.Address
-
-	elastigoConn = elastigo.NewConn()
-	// The old standard for host was including :9200
-	esHost := strings.Replace(addr, ":9200", "", -1)
-	log.Infof("esHost variable: %s\n", esHost)
-
-	elastigoConn.SetHosts([]string{esHost})
 	indexer := elastigoConn.NewBulkIndexerErrors(50, 120)
 	indexer.Sender = func(buf *bytes.Buffer) error {
 		log.Infof("es writing: %d bytes", buf.Len())
@@ -47,6 +43,11 @@ func NewLogesAdapter(route *router.Route) (router.LogAdapter, error) {
 		conn:    elastigoConn,
 		indexer: indexer,
 	}, nil
+}
+
+func parseEsAddr(addr string) []string {
+	esHosts := strings.Replace(addr, ":9200", "", -1)
+	return strings.Split(esHosts, "+")
 }
 
 // Stream implements the router.LogAdapter interface.
