@@ -50,24 +50,42 @@ func parseEsAddr(addr string) []string {
 	return strings.Split(esHosts, "+")
 }
 
+func parseFields(rawMsg []byte) (*LogFields, error) {
+	lf := new(LogFields)
+	err := json.Unmarshal(rawMsg, lf)
+	if err != nil {
+		return nil, err
+	}
+	return lf, nil
+}
+
 // Stream implements the router.LogAdapter interface.
 func (a *LogesAdapter) Stream(logstream chan *router.Message) {
 	lid := 0
 	for m := range logstream {
 		lid++
 		// Un-escape the newline characters so logs look nice
-		m.Data = EncodeNewlines(m.Data)
+		var msgVal string
+		msgVal = EncodeNewlines(m.Data)
+
+		fieldMap := make(map[string]interface{})
+		if fields, err := parseFields([]byte(m.Data)); err == nil && fields.Message != "" {
+			msgVal = fields.Message
+			fieldMap["level"] = fields.Level
+			fieldMap["severity"] = fields.Severity
+			fieldMap["line"] = fields.Line
+			fieldMap["file"] = fields.File
+			fieldMap["rawtime"] = fields.RawTime
+		}
+		fieldMap["host"] = m.Container.Config.Hostname
+		fieldMap["image"] = m.Container.Config.Image
 
 		msg := LogesMessage{
 			Source:    m.Container.Config.Hostname,
-			Type:      "logs",
+			Type:      "logspout",
+			Fields:    fieldMap,
 			Timestamp: time.Now(),
-			Message:   m.Data,
-			Name:      m.Container.Name,
-			ID:        m.Container.ID,
-			Image:     m.Container.Config.Image,
-			Hostname:  m.Container.Config.Hostname,
-			LID:       lid,
+			Message:   msgVal,
 		}
 		js, err := json.Marshal(msg)
 		if err != nil {
@@ -77,7 +95,7 @@ func (a *LogesAdapter) Stream(logstream chan *router.Message) {
 
 		idx := "logstash-" + m.Time.Format("2006.01.02")
 		//Index(index string, _type string, id,         ttl string, date *time.Time, data interface{}, refresh bool)
-		if err := a.indexer.Index(idx, "logs", "", "", "30d", &m.Time, js); err != nil {
+		if err := a.indexer.Index(idx, "logspout", "", "", "90d", &m.Time, js); err != nil {
 			log.Errorf("Index(ing) error: %v\n", err)
 		}
 	}
@@ -91,10 +109,14 @@ type LogesMessage struct {
 	Message     string                 `json:"@message"`
 	Tags        []string               `json:"@tags,omitempty"`
 	IndexFields map[string]interface{} `json:"@idx,omitempty"`
-	Fields      map[string]interface{} `json:"@fields"`
-	Name        string                 `json:"docker-name"`
-	ID          string                 `json:"docker-id"`
-	Image       string                 `json:"docker-image"`
-	Hostname    string                 `json:"docker-hostname"`
-	LID         int                    `json:"logspoutloges-id"`
+	Fields      map[string]interface{} `json:"@fields,omitempty"`
+}
+
+type LogFields struct {
+	Level    string `json:"level"`
+	Severity string `json:"severity"`
+	Message  string `json:"message"`
+	RawTime  string `json:"time"`
+	File     string `json:"file"`
+	Line     int    `json:"line"`
 }
