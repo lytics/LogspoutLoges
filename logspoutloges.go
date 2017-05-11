@@ -3,11 +3,12 @@ package logspoutloges
 import (
 	"bytes"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
-	"github.com/gliderlabs/logspout/router"
+	"github.com/lytics/logspout/router"
 	"github.com/mattbaird/elastigo/lib"
 )
 
@@ -52,17 +53,37 @@ func parseEsAddr(addr string) []string {
 }
 
 func parseFields(rawMsg []byte) (*LogFields, error) {
-	lf := new(LogFields)
-	err := json.Unmarshal(rawMsg, lf)
+	rl := new(LogFields)
+	err := json.Unmarshal(rawMsg, rl)
 	if err != nil {
 		return nil, err
 	}
-	return lf, nil
+	return rl, nil
+}
+
+func parseRawLog(rawMsg []byte) (*RawLog, error) {
+	rm := new(RawLog)
+	rm.LogFields = new(LogFields)
+	err := json.Unmarshal(rawMsg, rm)
+	if err != nil {
+		return nil, err
+	}
+	unq, err := strconv.Unquote(string(rm.Log))
+	if err != nil {
+		return nil, err
+	}
+
+	err = json.Unmarshal([]byte(unq), rm.LogFields)
+	if err != nil {
+		return nil, err
+	}
+	return rm, nil
 }
 
 // Stream implements the router.LogAdapter interface.
 func (a *LogesAdapter) Stream(logstream chan *router.Message) {
 	lid := 0
+	errThrottle := time.Tick(10 * time.Second)
 	for m := range logstream {
 		lid++
 		// Un-escape the newline characters so logs look nice
@@ -77,6 +98,12 @@ func (a *LogesAdapter) Stream(logstream chan *router.Message) {
 			fieldMap["line"] = fields.Line
 			fieldMap["file"] = fields.File
 			fieldMap["rawtime"] = fields.RawTime
+		} else if err != nil {
+			select {
+			case <-errThrottle:
+				log.Errorf("error parsing Fields: %v", err)
+			default: // skip logging an error unless errThrottle has a message
+			}
 		}
 		fieldMap["host"] = m.Container.Config.Hostname
 		fieldMap["image"] = m.Container.Config.Image
@@ -102,6 +129,42 @@ func (a *LogesAdapter) Stream(logstream chan *router.Message) {
 	}
 }
 
+func processMessage(m *router.Message) (*LogesMessage, error) {
+	msgVal := EncodeNewlines(m.Data)
+
+	fieldMap := make(map[string]interface{})
+	if rawlog, err := parseRawLog([]byte(m.Data)); err == nil && rawlog.Stream != "" {
+		fields := rawlog.LogFields
+		msgVal = fields.Message
+		fieldMap["level"] = fields.Level
+		fieldMap["severity"] = fields.Severity
+		fieldMap["line"] = fields.Line
+		fieldMap["file"] = fields.File
+		fieldMap["rawtime"] = fields.RawTime
+	} else if err != nil {
+		log.Errorf("error parsing Fields: %v", err)
+		return nil, err
+	}
+	var host, image string
+	if m.Container != nil {
+		host = m.Container.Config.Hostname
+		image = m.Container.Config.Image
+	} else {
+		host = "???"
+	}
+	fieldMap["host"] = host
+	fieldMap["image"] = image
+
+	msg := &LogesMessage{
+		Source:    host,
+		Type:      "logspout",
+		Fields:    fieldMap,
+		Timestamp: time.Now(),
+		Message:   msgVal,
+	}
+	return msg, nil
+}
+
 // LogesMessage Encapsulates the log data for Elasticsearch
 type LogesMessage struct {
 	Source      string                 `json:"@source"`
@@ -113,11 +176,21 @@ type LogesMessage struct {
 	Fields      map[string]interface{} `json:"@fields,omitempty"`
 }
 
+type RawLog struct {
+	Log       json.RawMessage `json:"log"`
+	LogFields *LogFields
+	Stream    string `json:"stream"`
+}
+
 type LogFields struct {
 	Level    string `json:"level"`
 	Severity string `json:"severity"`
 	Message  string `json:"message"`
-	RawTime  string `json:"time"`
+	RawTime  string `json:"time,omitempty"`
 	File     string `json:"file"`
 	Line     int    `json:"line"`
+}
+
+type LogFields2 struct {
+	Level string `json:"level"`
 }
