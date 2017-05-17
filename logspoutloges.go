@@ -3,8 +3,7 @@ package logspoutloges
 import (
 	"bytes"
 	"encoding/json"
-	"strconv"
-	"strings"
+	"errors"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
@@ -12,11 +11,40 @@ import (
 	"github.com/mattbaird/elastigo/lib"
 )
 
-var elastigoConn *elastigo.Conn
+var (
+	elastigoConn  *elastigo.Conn
+	PortNotParsed = errors.New("logspoutloges: no port parsed from connection string, defaulting to 9200")
+)
 
 func init() {
 	router.AdapterFactories.Register(NewLogesAdapter, "logspoutloges")
 	elastigoConn = elastigo.NewConn()
+}
+
+// LogesMessage Encapsulates the log data for Elasticsearch
+type LogesMessage struct {
+	Source      string                 `json:"@source"`
+	Type        string                 `json:"@type"`
+	Timestamp   time.Time              `json:"@timestamp"`
+	Message     string                 `json:"@message"`
+	Tags        []string               `json:"@tags,omitempty"`
+	IndexFields map[string]interface{} `json:"@idx,omitempty"`
+	Fields      map[string]interface{} `json:"@fields,omitempty"`
+}
+
+type RawLog struct {
+	Log       json.RawMessage `json:"log"`
+	LogFields *LogFields
+	Stream    string `json:"stream"`
+}
+
+type LogFields struct {
+	Level    string `json:"level"`
+	Severity string `json:"severity"`
+	Message  string `json:"message"`
+	RawTime  string `json:"time,omitempty"`
+	File     string `json:"file"`
+	Line     int    `json:"line"`
 }
 
 // LogesAdapter is an adapter that streams JSON to Elasticsearch
@@ -33,9 +61,16 @@ func NewLogesAdapter(route *router.Route) (router.LogAdapter, error) {
 	log.Debugf("ES Hosts: %s", hosts)
 	elastigoConn.SetHosts(hosts)
 
+	port, err := parsePort(route.Address)
+	if err != PortNotParsed {
+		return nil, err
+	} else if err == nil {
+		elastigoConn.SetPort(port) // Set the port to the parsed value
+	}
+
 	indexer := elastigoConn.NewBulkIndexerErrors(50, 120)
 	indexer.Sender = func(buf *bytes.Buffer) error {
-		log.Infof("es writing: %d bytes", buf.Len())
+		log.Infof("ES: writing %d bytes", buf.Len())
 		return indexer.Send(buf)
 	}
 	indexer.Start()
@@ -45,39 +80,6 @@ func NewLogesAdapter(route *router.Route) (router.LogAdapter, error) {
 		conn:    elastigoConn,
 		indexer: indexer,
 	}, nil
-}
-
-func parseEsAddr(addr string) []string {
-	esHosts := strings.Replace(addr, ":9200", "", -1)
-	return strings.Split(esHosts, "+")
-}
-
-func parseFields(rawMsg []byte) (*LogFields, error) {
-	rl := new(LogFields)
-	err := json.Unmarshal(rawMsg, rl)
-	if err != nil {
-		return nil, err
-	}
-	return rl, nil
-}
-
-func parseRawLog(rawMsg []byte) (*RawLog, error) {
-	rm := new(RawLog)
-	rm.LogFields = new(LogFields)
-	err := json.Unmarshal(rawMsg, rm)
-	if err != nil {
-		return nil, err
-	}
-	unq, err := strconv.Unquote(string(rm.Log))
-	if err != nil {
-		return nil, err
-	}
-
-	err = json.Unmarshal([]byte(unq), rm.LogFields)
-	if err != nil {
-		return nil, err
-	}
-	return rm, nil
 }
 
 // Stream implements the router.LogAdapter interface.
@@ -163,34 +165,4 @@ func processMessage(m *router.Message) (*LogesMessage, error) {
 		Message:   msgVal,
 	}
 	return msg, nil
-}
-
-// LogesMessage Encapsulates the log data for Elasticsearch
-type LogesMessage struct {
-	Source      string                 `json:"@source"`
-	Type        string                 `json:"@type"`
-	Timestamp   time.Time              `json:"@timestamp"`
-	Message     string                 `json:"@message"`
-	Tags        []string               `json:"@tags,omitempty"`
-	IndexFields map[string]interface{} `json:"@idx,omitempty"`
-	Fields      map[string]interface{} `json:"@fields,omitempty"`
-}
-
-type RawLog struct {
-	Log       json.RawMessage `json:"log"`
-	LogFields *LogFields
-	Stream    string `json:"stream"`
-}
-
-type LogFields struct {
-	Level    string `json:"level"`
-	Severity string `json:"severity"`
-	Message  string `json:"message"`
-	RawTime  string `json:"time,omitempty"`
-	File     string `json:"file"`
-	Line     int    `json:"line"`
-}
-
-type LogFields2 struct {
-	Level string `json:"level"`
 }
