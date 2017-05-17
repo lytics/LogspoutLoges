@@ -2,10 +2,10 @@ package logspoutloges
 
 import "strings"
 
-func EscapeNewlines(str string) string {
+func escapeNewlines(str string) string {
 	return strings.Replace(str, "\n", "\\n", -1)
 }
 
-func EncodeNewlines(str string) string {
+func encodeNewlines(str string) string {
 	return strings.Replace(str, "\\n", "\n", -1)
 }

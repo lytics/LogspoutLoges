@@ -19,7 +19,7 @@ func init() {
 	elastigoConn = elastigo.NewConn()
 }
 
-// LogesAdapter is an adapter that streams TCP JSON to Elasticsearch
+// LogesAdapter is an adapter that streams JSON to Elasticsearch
 type LogesAdapter struct {
 	conn    *elastigo.Conn
 	route   *router.Route
@@ -88,7 +88,7 @@ func (a *LogesAdapter) Stream(logstream chan *router.Message) {
 		lid++
 		// Un-escape the newline characters so logs look nice
 		var msgVal string
-		msgVal = EncodeNewlines(m.Data)
+		msgVal = encodeNewlines(m.Data)
 
 		fieldMap := make(map[string]interface{})
 		if fields, err := parseFields([]byte(m.Data)); err == nil && fields.Message != "" {
@@ -130,7 +130,7 @@ func (a *LogesAdapter) Stream(logstream chan *router.Message) {
 }
 
 func processMessage(m *router.Message) (*LogesMessage, error) {
-	msgVal := EncodeNewlines(m.Data)
+	msgVal := encodeNewlines(m.Data)
 
 	fieldMap := make(map[string]interface{})
 	if rawlog, err := parseRawLog([]byte(m.Data)); err == nil && rawlog.Stream != "" {
