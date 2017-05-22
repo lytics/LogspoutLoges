@@ -47,11 +47,17 @@ type LogFields struct {
 	Line     int    `json:"line"`
 }
 
+type LogIndexer interface {
+	Index(index string, _type string, id, parent, ttl string, date *time.Time,
+		data interface{}) error
+}
+
 // LogesAdapter is an adapter that streams JSON to Elasticsearch
 type LogesAdapter struct {
-	conn    *elastigo.Conn
-	route   *router.Route
-	indexer *elastigo.BulkIndexer
+	conn  *elastigo.Conn
+	route *router.Route
+	//indexer *elastigo.BulkIndexer
+	indexer LogIndexer
 }
 
 // NewLogesAdapter creates a LogesAdapter with TCP Elastigo BulkIndexer as the default transport.
@@ -80,6 +86,10 @@ func NewLogesAdapter(route *router.Route) (router.LogAdapter, error) {
 		conn:    elastigoConn,
 		indexer: indexer,
 	}, nil
+}
+
+func newTestAdapter(route *router.Route) (router.LogAdapter, error) {
+	return nil, nil
 }
 
 // Stream implements the router.LogAdapter interface.

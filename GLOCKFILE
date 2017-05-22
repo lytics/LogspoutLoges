@@ -1,0 +1,9 @@
+github.com/Sirupsen/logrus 4b6ea7319e214d98c938f12692336f7ca9348d6b
+github.com/araddon/gou 6d4a4b331485b29d768c61c48293326e16179f87
+github.com/bitly/go-hostpool d0e59c22a56e8dadfed24f74f452cea5a52722d2
+github.com/bmizerany/assert b7ed37b82869576c289d7d97fb2bbd8b64a0cb28
+github.com/kr/pretty cfb55aafdaf3ec08f0db22699ab822c50091b1c4
+github.com/kr/text 7cafcd837844e784b526369c9bce262804aebc60
+github.com/lytics/logrus 228226837bfe3380e29102c3c22cc0354592fe79
+github.com/lytics/logspout d6189c915ce845cc54cf2ddb35527b3bd81f0930
+github.com/mattbaird/elastigo 2fe47fd29e4b70353f852ede77a196830d2924ec
