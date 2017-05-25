@@ -1,6 +1,7 @@
 package logspoutloges
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -14,6 +15,37 @@ var (
 
 	fileLineLog = `{"log":"{\"file\":\"/home/gaben/go/src/github.com/blackmesa/g/main.go\",\"level\":\"info\",\"line\":183,\"message\":\"send mean: 0s, stddev: 0s, 99%: 0s, 99.9%: 0s, 99.99%: 0s, max: 0s, 1min rate: 0, 15min rate: 0; merge count: 0, 1min rate: 0, 15min rate: 0; process count: 0, 1min rate: 0, 15min rate: 0\",\"severity\":\"INFO\",\"time\":\"2017-05-11T21:09:05Z\"}\n","stream":"stdout","time":"2017-05-11T21:09:05.8211386Z"}`
 )
+
+type TestIndexer struct {
+	msgBuffer []*LogesMessage
+}
+
+func NewTestIndexer() *TestIndexer {
+
+	msgBuffer := make([]*LogesMessage, 0)
+	return &TestIndexer{
+		msgBuffer: msgBuffer,
+	}
+}
+
+func (ti *TestIndexer) Index(index string, _type string, id, parent, ttl string, date *time.Time, data interface{}) error {
+	m := &LogesMessage{}
+	err := json.Unmarshal(data.([]byte), m)
+	if err != nil {
+		return err
+	}
+	ti.msgBuffer = append(ti.msgBuffer, m)
+	return nil
+}
+
+func newTestAdapter(route *router.Route) (router.LogAdapter, error) {
+	ti := NewTestIndexer()
+	return &LogesAdapter{
+		route:   route,
+		conn:    nil,
+		indexer: ti,
+	}, nil
+}
 
 func TestProcessMessage(t *testing.T) {
 	m := &router.Message{

@@ -88,10 +88,6 @@ func NewLogesAdapter(route *router.Route) (router.LogAdapter, error) {
 	}, nil
 }
 
-func newTestAdapter(route *router.Route) (router.LogAdapter, error) {
-	return nil, nil
-}
-
 // Stream implements the router.LogAdapter interface.
 func (a *LogesAdapter) Stream(logstream chan *router.Message) {
 	lid := 0
