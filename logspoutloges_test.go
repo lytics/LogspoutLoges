@@ -2,6 +2,7 @@ package logspoutloges
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,35 +17,27 @@ var (
 	fileLineLog = `{"log":"{\"file\":\"/home/gaben/go/src/github.com/blackmesa/g/main.go\",\"level\":\"info\",\"line\":183,\"message\":\"send mean: 0s, stddev: 0s, 99%: 0s, 99.9%: 0s, 99.99%: 0s, max: 0s, 1min rate: 0, 15min rate: 0; merge count: 0, 1min rate: 0, 15min rate: 0; process count: 0, 1min rate: 0, 15min rate: 0\",\"severity\":\"INFO\",\"time\":\"2017-05-11T21:09:05Z\"}\n","stream":"stdout","time":"2017-05-11T21:09:05.8211386Z"}`
 )
 
-type TestIndexer struct {
-	msgBuffer []*LogesMessage
+// FakeIndexer is a provides a buffer to record messages piped through
+// the AdapterFake to replace writing to elasticsearch via elastigo.
+type FakeIndexer struct {
+	MsgBuffer []*LogesMessage
 }
 
-func NewTestIndexer() *TestIndexer {
-
+func NewFakeIndexer() *FakeIndexer {
 	msgBuffer := make([]*LogesMessage, 0)
-	return &TestIndexer{
-		msgBuffer: msgBuffer,
+	return &FakeIndexer{
+		MsgBuffer: msgBuffer,
 	}
 }
 
-func (ti *TestIndexer) Index(index string, _type string, id, parent, ttl string, date *time.Time, data interface{}) error {
+func (fi *FakeIndexer) Index(index string, _type string, id, parent, ttl string, date *time.Time, data interface{}) error {
 	m := &LogesMessage{}
 	err := json.Unmarshal(data.([]byte), m)
 	if err != nil {
 		return err
 	}
-	ti.msgBuffer = append(ti.msgBuffer, m)
+	fi.MsgBuffer = append(fi.MsgBuffer, m)
 	return nil
-}
-
-func newTestAdapter(route *router.Route) (router.LogAdapter, error) {
-	ti := NewTestIndexer()
-	return &LogesAdapter{
-		route:   route,
-		conn:    nil,
-		indexer: ti,
-	}, nil
 }
 
 func TestProcessMessage(t *testing.T) {
@@ -69,4 +62,41 @@ func TestProcessMessage(t *testing.T) {
 		t.Errorf("error unmarshaling file: %v", err)
 	}
 	t.Logf("message parsed: %q", l.Message)
+}
+
+func TestFakeAdapter(t *testing.T) {
+	logstream, route := make(chan *router.Message), &router.Route{}
+
+	fi := NewFakeIndexer()
+	ta := &LogesAdapter{
+		route:   route,
+		conn:    nil,
+		indexer: fi,
+	}
+	go func() {
+		ta.Stream(logstream)
+	}()
+
+	for i := 0; i < 10; i++ {
+		m := &router.Message{
+			Container: nil,
+			Source:    "testing",
+			Data:      fileLineLog,
+			Time:      time.Now(),
+		}
+		logstream <- m
+	}
+	time.Sleep(100 * time.Millisecond) //ensure all messages get consumed by Stream()
+
+	if len(fi.MsgBuffer) < 10 {
+		t.Errorf("messages recorded should be 10")
+	}
+
+	lm := fi.MsgBuffer[0]
+	if lm.Type != "logspout" {
+		t.Errorf("message.Source incorrect: %q", lm.Source)
+	}
+	if !strings.Contains(lm.Fields["file"].(string), "gaben") {
+		t.Errorf("no 'gaben' found in filename path!")
+	}
 }

@@ -90,42 +90,15 @@ func NewLogesAdapter(route *router.Route) (router.LogAdapter, error) {
 
 // Stream implements the router.LogAdapter interface.
 func (a *LogesAdapter) Stream(logstream chan *router.Message) {
-	lid := 0
-	errThrottle := time.Tick(10 * time.Second)
 	for m := range logstream {
-		lid++
-		// Un-escape the newline characters so logs look nice
-		var msgVal string
-		msgVal = encodeNewlines(m.Data)
-
-		fieldMap := make(map[string]interface{})
-		if fields, err := parseFields([]byte(m.Data)); err == nil && fields.Message != "" {
-			msgVal = fields.Message
-			fieldMap["level"] = fields.Level
-			fieldMap["severity"] = fields.Severity
-			fieldMap["line"] = fields.Line
-			fieldMap["file"] = fields.File
-			fieldMap["rawtime"] = fields.RawTime
-		} else if err != nil {
-			select {
-			case <-errThrottle:
-				log.Errorf("error parsing Fields: %v", err)
-			default: // skip logging an error unless errThrottle has a message
-			}
-		}
-		fieldMap["host"] = m.Container.Config.Hostname
-		fieldMap["image"] = m.Container.Config.Image
-
-		msg := LogesMessage{
-			Source:    m.Container.Config.Hostname,
-			Type:      "logspout",
-			Fields:    fieldMap,
-			Timestamp: time.Now(),
-			Message:   msgVal,
+		msg, err := processMessage(m)
+		if err != nil {
+			log.Errorf("logspoutloges: error processing message: %v", err)
+			continue
 		}
 		js, err := json.Marshal(msg)
 		if err != nil {
-			log.Errorf("loges marshal error: %v", err)
+			log.Errorf("logspoutloges: marshal error: %v", err)
 			continue
 		}
 
@@ -138,6 +111,7 @@ func (a *LogesAdapter) Stream(logstream chan *router.Message) {
 }
 
 func processMessage(m *router.Message) (*LogesMessage, error) {
+	// Un-escape the newline characters so logs look nice
 	msgVal := encodeNewlines(m.Data)
 
 	fieldMap := make(map[string]interface{})
