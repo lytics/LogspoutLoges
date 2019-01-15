@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	log "github.com/Sirupsen/logrus"
 	"github.com/gliderlabs/logspout/router"
-	"github.com/mattbaird/elastigo/lib"
+	elastigo "github.com/mattbaird/elastigo/lib"
+	log "github.com/sirupsen/logrus"
 )
 
 var elastigoConn *elastigo.Conn
@@ -75,8 +75,7 @@ func (a *LogesAdapter) Stream(logstream chan *router.Message) {
 		}
 
 		idx := "logstash-" + m.Time.Format("2006.01.02")
-		//Index(index string, _type string, id,         ttl string, date *time.Time, data interface{}, refresh bool)
-		if err := a.indexer.Index(idx, "logs", "", "30d", &m.Time, js, false); err != nil {
+		if err := a.indexer.Index(idx, "logs", "", "", "30d", &m.Time, js); err != nil {
 			log.Errorf("Index(ing) error: %v\n", err)
 		}
 	}
