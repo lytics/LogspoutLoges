@@ -1,98 +1,149 @@
 package logspoutloges
 
 import (
-	"bytes"
 	"encoding/json"
+	"fmt"
+	"net/url"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/gliderlabs/logspout/router"
-	elastigo "github.com/mattbaird/elastigo/lib"
 	log "github.com/sirupsen/logrus"
+	elastic "gopkg.in/olivere/elastic.v3"
 )
-
-var elastigoConn *elastigo.Conn
 
 func init() {
 	router.AdapterFactories.Register(NewLogesAdapter, "logspoutloges")
+	if os.Getenv("DEBUG") != "" {
+		log.Infof("Debug logging enabled.")
+		log.SetLevel(log.DebugLevel)
+	}
 }
 
 // LogesAdapter is an adapter that streams TCP JSON to Elasticsearch
 type LogesAdapter struct {
-	conn    *elastigo.Conn
-	route   *router.Route
-	indexer *elastigo.BulkIndexer
+	route *router.Route
+	bp    *elastic.BulkProcessor
 }
 
-// NewLogesAdapter creates a LogesAdapter with TCP Elastigo BulkIndexer as the default transport.
+// NewLogesAdapter creates a LogesAdapter with Elasticsearch as the default transport.
 func NewLogesAdapter(route *router.Route) (router.LogAdapter, error) {
+	log.Debugf("new LogesAdapter for route: %+v", route)
 
-	addr := route.Address
+	hosts := strings.Split(route.Address, "+")
+	hosts = normalize(hosts)
 
-	elastigoConn = elastigo.NewConn()
-	// The old standard for host was including :9200
-	esHost := strings.Replace(addr, ":9200", "", -1)
-	log.Infof("esHost variable: %s\n", esHost)
+	retrier := elastic.NewBackoffRetrier(elastic.NewExponentialBackoff(time.Millisecond, 5*time.Minute))
 
-	elastigoConn.SetHosts([]string{esHost})
-	indexer := elastigoConn.NewBulkIndexerErrors(50, 120)
-	indexer.Sender = func(buf *bytes.Buffer) error {
-		log.Infof("es writing: %d bytes", buf.Len())
-		return indexer.Send(buf)
+	// FIXME: Client is never stopped.
+	c, err := elastic.NewClient(
+		elastic.SetURL(hosts...),
+		elastic.SetErrorLog(log.StandardLogger()),
+		elastic.SetInfoLog(log.StandardLogger()),
+		elastic.SetRetrier(retrier),
+	)
+	if err != nil {
+		log.Warnf("failed to create Elasticsearch client: %v", err)
+		return nil, err
 	}
-	indexer.Start()
 
-	return &LogesAdapter{
-		route:   route,
-		conn:    elastigoConn,
-		indexer: indexer,
-	}, nil
+	bp, err := c.BulkProcessor().FlushInterval(time.Minute).Do()
+	if err != nil {
+		log.Warnf("failed to create bulk processor: %v", err)
+		return nil, err
+	}
+
+	// FIXME: Processor is never stopped.
+	if err := bp.Start(); err != nil {
+		log.Warnf("failed to start bulk processor: %v", err)
+		return nil, err
+	}
+
+	l := &LogesAdapter{
+		route: route,
+		bp:    bp,
+	}
+	log.Debugf("created adapter: %+v", l)
+	return l, nil
 }
 
 // Stream implements the router.LogAdapter interface.
 func (a *LogesAdapter) Stream(logstream chan *router.Message) {
-	lid := 0
+	log.Debugf("started streaming for adapter: %+v", a)
 	for m := range logstream {
-		lid++
-		// Un-escape the newline characters so logs look nice
-		m.Data = EncodeNewlines(m.Data)
+		var msg string
+		var fields Fields
 
-		msg := LogesMessage{
-			Source:    m.Container.Config.Hostname,
-			Type:      "logs",
-			Timestamp: time.Now(),
-			Message:   m.Data,
-			Name:      m.Container.Name,
-			ID:        m.Container.ID,
-			Image:     m.Container.Config.Image,
-			Hostname:  m.Container.Config.Hostname,
-			LID:       lid,
+		if err := json.Unmarshal([]byte(m.Data), &fields); err == nil && fields.Message != "" {
+			msg = fields.Message
+			fields.Message = ""
+		} else {
+			// Un-escape the newline characters so logs look nice
+			msg = EncodeNewlines(m.Data)
 		}
-		js, err := json.Marshal(msg)
-		if err != nil {
-			log.Println("loges:", err)
-			continue
+		fields.Host = m.Container.Config.Hostname
+		fields.Image = m.Container.Config.Image
+
+		l := Log{
+			Source:    m.Container.Config.Hostname,
+			Type:      "logspout",
+			Fields:    fields,
+			Timestamp: time.Now(),
+			Message:   msg,
 		}
 
 		idx := "logstash-" + m.Time.Format("2006.01.02")
-		if err := a.indexer.Index(idx, "logs", "", "", "30d", &m.Time, js); err != nil {
-			log.Errorf("Index(ing) error: %v\n", err)
-		}
+		r := elastic.NewBulkIndexRequest().
+			Doc(l).
+			Index(idx).
+			Type("logs")
+
+		a.bp.Add(r)
+		log.Debugf("indexed log: %+v", l)
 	}
+	log.Debugf("done streaming for adapter: %+v", a)
 }
 
-// LogesMessage Encapsulates the log data for Elasticsearch
-type LogesMessage struct {
+// Log encapsulates log data for Elasticsearch.
+type Log struct {
 	Source      string                 `json:"@source"`
 	Type        string                 `json:"@type"`
 	Timestamp   time.Time              `json:"@timestamp"`
 	Message     string                 `json:"@message"`
 	Tags        []string               `json:"@tags,omitempty"`
 	IndexFields map[string]interface{} `json:"@idx,omitempty"`
-	Fields      map[string]interface{} `json:"@fields"`
-	Name        string                 `json:"docker.name"`
-	ID          string                 `json:"docker.id"`
-	Image       string                 `json:"docker.image"`
-	Hostname    string                 `json:"docker.hostname"`
-	LID         int                    `json:"logspoutloges.id"`
+	Fields      Fields                 `json:"@fields"`
+}
+
+// Fields encapsulates standardized log fields.
+type Fields struct {
+	Host     string `json:"host"`
+	Image    string `json:"image"`
+	Level    string `json:"level,omitempty"`
+	Severity string `json:"severity,omitempty"`
+	Message  string `json:"message,omitempty"`
+	RawTime  string `json:"time,omitempty"`
+	File     string `json:"file,omitempty"`
+	Line     int    `json:"line,omitempty"`
+}
+
+func normalize(urls []string) []string {
+	log.Debugf("normalizing urls: %v", urls)
+	out := make([]string, 0, len(urls))
+	for _, s := range urls {
+		url, err := url.Parse(fmt.Sprintf("http://%v", s)) // Need to add scheme for proper parsing
+		if err != nil {
+			log.Warnf("failed to parse %q to URL: %v", s, err)
+			continue
+		}
+		if url.Port() == "" {
+			log.Warnf("URL %q missing port, fixing for now.", url)
+			url.Host = fmt.Sprintf("%v:%v", url.Hostname(), "9200")
+		}
+		log.Debugf("normalized URL: %v", url)
+		out = append(out, url.String())
+	}
+	log.Debugf("normalized urls: %v", out)
+	return out
 }
