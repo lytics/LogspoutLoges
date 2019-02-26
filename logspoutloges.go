@@ -42,6 +42,8 @@ func NewLogesAdapter(route *router.Route) (router.LogAdapter, error) {
 		elastic.SetErrorLog(log.StandardLogger()),
 		elastic.SetInfoLog(log.StandardLogger()),
 		elastic.SetRetrier(retrier),
+		elastic.SetHealthcheck(false),
+		elastic.SetSniff(false),
 	)
 	if err != nil {
 		log.Warnf("failed to create Elasticsearch client: %v", err)
